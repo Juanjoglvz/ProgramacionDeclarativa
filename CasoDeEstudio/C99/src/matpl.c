@@ -597,7 +597,7 @@ install()
 	PL_register_foreign("mult_mat_factor", 3, pl_multiply_matrix, 0);
 	PL_register_foreign("determinant_mat", 2, pl_determinant_matrix, 0);
 	PL_register_foreign("transpose_mat", 2, pl_transpose_matrix, 0);
-	PL_register_foreign("inverse_mat ", 2, pl_inverse_matrix, 0);
+	PL_register_foreign("inverse_mat", 2, pl_inverse_matrix, 0);
 	PL_register_foreign("is_squared", 1, pl_is_squared, 0);
 	PL_register_foreign("same_dimensions", 2, pl_is_same_dimensions, 0);
 }

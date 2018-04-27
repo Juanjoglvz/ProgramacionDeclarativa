@@ -14,6 +14,12 @@ struct Matrix_t* alloc_matrix(const size_t size[2])
         return NULL;
     }
 
+    if (size[0] < 1 || size[1] < 1)
+    {
+        DEBUG_PRINT("Invalid size\n");
+        return 0;
+    }
+
     struct Matrix_t* mat = calloc(1, sizeof(struct Matrix_t));
     if (!mat)
     {
@@ -291,6 +297,11 @@ struct Matrix_t* list_to_matrix(const term_t list)
         if (!PL_get_list(tail, head, tail))
         {
             DEBUG_PRINT("Error while iterating through the list\n");
+            int res = free_matrix(matrix);
+            if (!res)
+            {
+                DEBUG_PRINT("Error freeing memory\n");
+            }
             return NULL;
         }
             
@@ -310,6 +321,11 @@ struct Matrix_t* list_to_matrix(const term_t list)
         if (!res)
         {
             DEBUG_PRINT("Couldn't convert the list to a matrix\n");
+            int res = free_matrix(matrix);
+            if (!res)
+            {
+                DEBUG_PRINT("Error freeing memory\n");
+            }
             return NULL;
         }
     }

@@ -1,4 +1,4 @@
-\documentclass[a4paper,12pt]{article}
+\documentclass[a4paper]{article}
 
 \usepackage[a4paper, total={6in, 9.5in}]{geometry}
 \usepackage[utf8]{inputenc}
@@ -24,6 +24,16 @@
   commentstyle=\color{red},
   keywordstyle=\color{blue}
 }
+
+\usepackage{titlesec}
+
+\setcounter{secnumdepth}{4}
+
+\titleformat{\paragraph}
+{\normalfont\normalsize\bfseries}{\theparagraph}{1em}{}
+\titlespacing*{\paragraph}
+{0pt}{3.25ex plus 1ex minus .2ex}{1.5ex plus .2ex}
+
 
 \usepackage{color}
 \definecolor{gray97}{gray}{.97}
@@ -78,6 +88,8 @@
 \lhead{Programación Declarativa}
 \rhead{Página \thepage\ de \pageref{LastPage}}
 
+
+\usepackage{parskip}
 \begin{document}
 \renewcommand{\contentsname}{Índice}
 
@@ -126,12 +138,33 @@ En este documento se discutirán solo la creación de librerías dinámicas para
 SWI-Prolog permite la implementación de predicados externos deterministas y no deterministas. Los predicados deterministas son aquellos que no permiten puntos de elección y sólo tienen éxito una vez, mientras que los no deterministas permiten varios puntos de elección, y pueden tener éxito al ser reevaluados en otro punto de elección. Sin embargo, nosotros sólo nos centraremos en la implementación de predicados deterministas, puesto que los predicados externos no deterministas son mucho más complejos, puesto que necesitan mantener información del contexto entre las diferentes llamadas al predicado externo para computar todas sus soluciones.
 
 
-\section{Compilación y ejecución de bibliotecas dinámicas}
+\section{Compilación, ejecución y depuración de bibliotecas dinámicas}
 
 Antes de mostrar cómo se implementan predicados externos en C y C++, vamos a ver primero el proceso de compilado y enlazado de las librerías generadas.
 \subsection{C}
 \subsubsection{Compilación}
+El proceso de compilar una librería dinámica para usarla en \texttt{SWI-Prolog} pasa por usar el comando \texttt{swipl-l} que por defecto es instalado junto a \texttt{SWI-Prolog} cuya función es compilar y enlazar el código que le proporcionemos.
+Para compilar será necesario ejecutar el siguiente comando
+
+\texttt{swipl-ld -Iinclude/ -c code.c -o out.o}
+
+En esencia, este comando es una interfaz con \texttt{gcc} el cual ayuda a localizar e incluir los archivos de cabecera de \texttt{SWI-Prolog}.
+
+Para enlazar los archivos obtenidos de la compilación se usará el siguiente comando
+
+\texttt{swipl-ld -shared -o library.so code1.o code2.o}
+
+Donde \texttt{codeX.o} son todos los archivos compilados usando el comando anterior.
+
+El resultado de ejecutar este comando es un archivo \texttt{.so} que utilizaremos para cargar la librería dentro de la línea de comandos de \texttt{SWI-Prolog}.
+
 \subsubsection{Ejecución}
+Para ejecutar la librería compilada anteriormente es necesario ejecutar \texttt{SWI-Prolog} en el mismo directorio en el que se encuentra la librería y ejecutar el predicado \texttt{load\_foreign\_library(+library)} donde \texttt{library} es la ruta de la librería externa ya compilada.
+
+Una vez ejecutado el predicado todos los predicados definidos dentro de la librería están disponibles dentro de \texttt{SWI-Prolog} como si de un predicado nativo se tratase.
+
+El predicado \texttt{load\_foreign\_library} se puede incluir en una directiva dentro de un fichero de código \texttt{Prolog} para automatizar la carga de la librería.
+
 \subsection{C++11}
 \subsubsection{Compilación}
 En el caso de C++, la compilación se realiza de forma similar. En este caso, es necesario usar el enlazador de SWI-Prolog a la vez del compilador de C++ para que la compilación se realice correctamente.
@@ -141,6 +174,45 @@ swipl-ld -shared -ld g++ -cc-options[" -std=c++11"
 En este caso se usa la flag -cc-options del enlazador de SWI-Prolog para indicarlo al compilador de C++ que use el estándar C++11, para poder utilizar sus librerías y sus punteros inteligentes.
 \subsubsection{Ejecución}
 La ejecución usando la interfaz de C++ es similar a la de C, porque ésta interfaz está basada en la de C. Aunque, como luego veremos, la interfaz de C++ no tenga función de instalación, la macro que se va a usar para definir predicados externos, realiza procesos transparentes al programador que generan dicho función de instalación. Debido a esto, el flujo de ejecución es similar.
+
+\subsection{Depuración}
+Para poder depurar la librería externa se debería compilar el núcleo de \texttt{SWI-Prolog} con símbolos de depuración lo cual no es trivial y depende en gran medida del sistema operativo y plataforma usada.
+
+La solución que se ha alcanzado es implementar una funcion de depuración a nivel de preprocesador, similar a la función \texttt{printf}.
+
+Esta función imprime por la salida estándar de error el mensaje que le pasemos como argumentos e incluso valores en tiempo de compilación.
+
+De esta manera podemos habilitar y deshabilitar todos los mensajes de depuración cambiando el comando de compilación. Definiendo una macro en tiempo de compilación.
+
+El código que habilitaría/deshabilitaría los mensajes en tiempo de compilación sería el siguiente:
+
+\begin{lstlisting}[style=C++]
+#ifdef DEBUG
+	#define DEBUG_PRINT(...) dbgprintf(__FILE__, __LINE__, __VA_ARGS__)
+#else
+	#define DEBUG_PRINT(...) do {} while(0)
+#endif
+\end{lstlisting}
+
+La función \texttt{dbgprintf} está definida de la siguiente forma:
+
+\begin{lstlisting}[style=C++]
+void dbgprintf(const char* source_file, int source_line, const char* format_string, ...)
+{
+    va_list args;
+    va_start(args, format_string);
+
+    fprintf(stderr, "%s:%d: ", source_file, source_line);
+    vfprintf(stderr, format_string, args);
+
+    va_end(args);
+
+}
+\end{lstlisting}
+
+De esta forma, para habilitar los mensajes de depuración solo tendríamos que añadir al comando de compilación la opción \texttt{-DDEBUG}
+
+La forma de imprimir un mensaje sería llamar a la función \texttt{DEBUG_PRINT} como si de otra función de C se tratase.
 
 
 \section{Implementación de predicados externos}
@@ -163,16 +235,222 @@ Aunque no se discutirán todas las operaciones implementadas, el listado complet
 \end{itemize}
 \subsection{C}
 \subsubsection{Definición de predicados externos}
-\subsubsection{Función de instalación}
-\subsubsection{El tipo \texttt{term\_t}}
-\subsubsection{Análisis y construcción de términos}
-\subsubsection{Comprobación de tipos}
-\subsubsection{Términos simples}
-\subsubsection{Términos compuestos}
-\subsubsection{Listas}
-\subsubsection{Llamadas a predicados Prolog}
-\subsubsection{Otras funciones}
+Para definir un predicado externo es necesario definir una función que devuelva un valor del tipo \texttt{foreign\_t} y acepte valores del tipo \texttt{term\_t} los cuales son los argumentos del predicado que serán proporcionados dentro del entorno de \texttt{SWI-Prolog}. 
 
+Cada función que definamos se corresponderá con un predicado externo en \texttt{SWI-Prolog}.
+
+La forma de devolver el control a \texttt{SWI-Prolog} es usar las macros \texttt{PL\_succeed} y \texttt{PL\_fail} que a su vez devuelven las macros \texttt{TRUE} y \texttt{FALSE}, cuyos valores son $1$ y $0$.
+
+\subsubsection{Función de instalación}
+Para que los predicados definidos en la librería externa estén disponible en \texttt{SWI-Prolog} es necesario definir una función de instalación que registre todos los predicados definidos en el núcleo de \texttt{SWI-Prolog}.
+
+Esta función :
+\begin{itemize}
+	\item Tiene un tipo de retorno \texttt{install\_t}.
+	\item No tiene parámetros de entrada.
+	\item El nombre de la función es \texttt{install} o \texttt{install\_} seguido por el nombre de la biblioteca.
+\end{itemize}
+
+La función para registrar los predicados externos es
+
+\texttt{PL\_register\_foreign(+name, +arity, +function, 0)}
+
+El significado de estos argumentos son:
+Esta función :
+\begin{itemize}
+	\item \textbf{+name} El nombre del predicado con el cual será llamado dentro de \texttt{SWI-Prolog}
+	\item \textbf{+arity} El número de argumentos del predicado externo, que debe coincidir con el número de argumentos de la función definida en C
+	\item \textbf{+function} El nombre de la función en código C, que no tiene por qué coincidir con el nombre del predicado que se usará en \texttt{SWI-Prolog}
+\end{itemize}
+
+Un ejemplo de definición de predicados y de función de instalación podría ser la implementación de un predicado que sumase dos números enteros:
+
+\begin{lstlisting}[style=C++]
+foreign_t
+pl_sum_num(term_t n1, term_t n2, term_t res)
+{
+	int num1, num2 = 0;
+	
+	if (!PL_get_integer(n1, &num1)
+		PL_fail;
+	if (!PL_get_integer(n2, &num2)
+		PL_fail;
+	
+	term_t r = PL_new_term_ref();
+	
+	return PL_put_integer(res, num1 + num2);
+}
+
+install_t
+install()
+{
+	PL_register_foreign("sum_num", 2, pl_sum_num, 0);
+}
+\end{lstlisting}
+
+\subsubsection{El tipo \texttt{term\_t}}
+El tipo de datos \texttt{term\_t} es el principal tipo de datos en la librería externa de \texttt{SWI-Prolog}.
+
+Este tipo de datos representa un puntero a un término de \texttt{SWI-Prolog} aunque este puntero no se puede manipular con los operadores habituales de C.
+
+Los valores posibles de \texttt{term\_t} son:
+\begin{itemize}
+	\item Una variable.
+	\item Un átomo.
+	\item La constante \texttt{[]}, que representa el final de una lista.
+	\item Datos binarios.
+	\item Una cadena de texto.
+	\item Un valor numérico.
+	\item Un término compuesto
+	\item Una lista.
+	\item Un diccionario.
+\end{itemize}
+
+Las funciones más usadas para manejar términos son:
+\begin{itemize}
+	\item \textbf{PL\_new\_term\_ref()} Crea una referencia a un nuevo término.
+	\item \textbf{PL\_new\_term\_refs(+count)} Crea \texttt{count} referencias a un nuevo término, estas referencias se pueden acceder sumando 1,2,3... al primer término.
+	\item \textbf{PL\_copy\_term\_ref(+term)} Crea una referencia a un nuevo término el cual apunta inicialmente a \texttt{term}.
+\end{itemize}
+
+Una función muy interesante es \texttt{PL\_copy\_term\_ref} ya que permite recorrer una lista al estilo de \texttt{SWI-Prolog} un ejemplo es:
+
+\begin{lstlisting}[style=C++]
+foreign_t
+pl_print_list(term_t list)
+{
+	if (!PL_is_list(list))
+		PL_fail;
+	
+    term_t head = PL_new_term_ref();
+    term_t tail = PL_copy_term_ref(list);
+	
+	while(PL_get_list(tail, head, tail))
+	{
+		char* str;
+		PL_get_atom_chars(head, &str);
+		
+		printf("%s, ", str);
+	}
+	
+	PL_succeed;
+}
+\end{lstlisting}
+
+\subsubsection{Análisis y construcción de términos}
+En la librería externa de \texttt{SWI-Prolog} existen diversas funciones que, permiten conocer qué tipo de variable está almacenado en una variable \texttt{term\_t} y que permiten relacionar esas variables con los tipos de C.
+\paragraph{Comprobación de tipos}
+La librería cuenta con una serie de funciones que permiten conocer el tipo de variable que contiene una variable \texttt{term\_t}.
+Algunos de estos métodos son:
+\begin{itemize}
+	\item \texttt{PL\_is\_variable(+term)}
+	\item \texttt{PL\_is\_atom(+term)}
+	\item \texttt{PL\_is\_number(+term)}
+	\item \texttt{PL\_is\_list(+term)}
+	\item \texttt{PL\_is\_compound(+term)}
+	\item \texttt{PL\_is\_string(+term)}
+\end{itemize}
+
+\paragraph{Términos simples}
+La librería externa cuenta con funciones para obtener valores de los términos de \texttt{SWI-Prolog}, algunas de estas funciones son:
+\begin{itemize}
+	\item \texttt{PL\_get\_atom\_chars(+term, -char\_pointer)}
+	\item \texttt{PL\_get\_integer(+term, -int\_pointer)}
+	\item \texttt{PL\_get\_float(+term, -double\_pointer)}
+\end{itemize}
+
+También podemos usar funciones para guardar tipos de datos de C en un término de \texttt{SWI-Prolog}, algunas de estas funciones son:
+
+\begin{itemize}
+	\item \textbf{PL\_put\_variable(-term):} Que guarda una variable no inicializada en el término.
+	\item \textbf{PL\_put\_atom\_chars(-term, +char\_pointer):} Que guarda una cadena de caracteres en el término.
+	\item \textbf{PL\_put\_float(-term, +double):} Que guarda un número de punto flotante en el término.
+\end{itemize}
+
+Un ejemplo de operaciones con estas funciones sería la de sumar todos los elementos numéricos de una lista
+
+\begin{lstlisting}[style=C++]
+foreign_t
+pl_sum_list(term_t list, term_t result)
+{
+	if (!PL_is_list(list))
+		PL_fail;
+	
+	term_t head = PL_new_term_ref();
+	term_t tail = PL_copy_term_ref(list);
+	
+	double sum = 0;
+	
+	while(PL_get_list(tail, head, tail))
+	{
+		double d = 0;
+		int i = 0;
+		if (!PL_is_number(head))
+			continue;
+		
+		if (PL_is_integer(head))
+		{
+			PL_get_integer(head, &i);
+			d = (double) i;
+		}
+		else
+		{
+			PL_get_float(head, &d);
+		}
+		
+		sum += d;
+	}
+	
+	term_t r = PL_new_term_ref();
+	PL_put_float(result, sum);
+}
+\end{lstlisting}
+
+\paragraph{Listas}
+En la librería también existen funciones para crear, modificar y analizar listas de \texttt{SWI-Prolog}, algunas de estas funciones son:
+\begin{itemize}
+	\item \textbf{PL\_get\_list(+list, -head, -tail):} Que guarda en dos términos la cabeza y la cola de la lista correspondiente.
+	\item \textbf{PL\_get\_nil(+list):} Comprueba si el término representa la constante de final de lista.
+	\item \textbf{PL\_cons\_list(-list, +head, +tail):} Construye una lista nueva formada por la unión de la cabeza y la cola. La lista objetivo y la cola pueden ser el mismo término, lo que ayuda a construir listas en un bucle.
+	\item \textbf{PL\_skip\_list(+list, -tail, -length):} Permite conocer la longitud de la lista y, a la vez, obtener un término que hace referencia al último elemento de la lista.
+\end{itemize}
+
+\subsubsection{Otras funciones}.
+Otra función interesante dentro de la librería es la posibilidad de unificar dos términos de la misma forma que se produce la unificación en \texttt{SWI-Prolog}
+
+Esta función es \texttt{PL\_unify(term1, term2)} que intenta unificar term2 con term1.
+
+Para ejemplificar este apartado junto con el de listas se implementará un predicado externo que construya una lista de los que contenga todos los números naturales que hay entre los dos argumentos pasados al predicado, la lista resultante se unificará para que el predicado tenga también un propósito de comprobar si una lista genérica es la lista de elementos consecutivos entre dos números:
+
+\begin{lstlisting}[style=C++]
+foreign_t
+pl_gen_list(term_t low, term_t high, term_t list)
+{
+	if (!PL_is_integer(low) || !PL_is_integer(high))
+		PL_fail;
+	
+	int l, h;
+	
+	PL_get_integer(low, &l); // Get the numeric values of the terms
+	PL_get_integer(high, &h);
+	
+	if (l > h || l < 0) // Check if the range is valid
+		PL_fail;
+	
+	term_t res = PL_new_term_ref();
+	PL_put_nil(res); // Put the empty list constant in the new term
+	
+	term_t num = PL_new_term_ref();
+	
+	for (int i = l; i <= h; i++)
+	{
+		PL_put_integer(num, i); // Put the numeric value on the term
+		PL_cons_list(list, num, list); // Build the list tail-to-head
+	}
+	
+	return PL_unify(list, res); // Unify with the list
+}
+\end{lstlisting}
 
 \subsection{C++11}
 \subsubsection{Definición de predicados externos}
@@ -386,8 +664,384 @@ Además de estas operaciones, se han implementado multitud más de operaciones c
 El mayor esfuerzo ha sido situado en la comprobación de tipos, de tal modo que los predicados sean capaces de admitir cualquier tipo de término de Prolog y lograr una respuesta, aunque se evalúe el predicado a falso, en vez de cortar la ejecución de Prolog.
 
 \subsection{C}
+Debido a la naturaleza de bajo nivel de C la lógica de la librería dinámica está mezclada con las comprobaciones de errores y el tratamiento de memoria dinámica, aun así se podrían distinguir 4 partes bien diferencias en un predicado externo:
+\begin{itemize}
+	\item \textbf{Comprobación-Conversión:} De los tipos de \texttt{SWI-Prolog} a tipos y estructuras de C.
+	\item \textbf{Obtención de memoria dinámica:} Donde se guardará la matriz resultado.
+	\item \textbf{Obtención:} Del resultado del predicado mediante operaciones definidas previamente
+	\item \textbf{Conversión:} De tipos de datos C a valores de \texttt{SWI-Prolog}.
+	\item \textbf{Liberación de memoria dinámica:} Para prevenir las fugas de memoria.
+\end{itemize}
 \subsubsection{sum\_mat}
+El código que realiza la suma de matrices es:
+\begin{lstlisting}[style=C++]
+int add_matrices(const struct Matrix_t* m1, const struct Matrix_t* m2, struct Matrix_t* result)
+{
+    if (!m1)
+        return 0;
+    if (!m1->size)
+        return 0;
+    if (!m1->rows)
+        return 0;
+
+    if (!m2)
+        return 0;
+    if (!m2->size)
+        return 0;
+    if (!m2->rows)
+        return 0;
+
+    if (!result)
+        return 0;
+    if (!result->size)
+        return 0;
+    if (!result->rows)
+        return 0;
+
+
+    int same_dims = 0;
+    if (!is_same_dimensions(m1, m2, &same_dims))
+        return 0;
+
+    if (!same_dims)
+    	return 0;
+
+    for (int i = 0; i < result->size[0]; i++)
+    {
+        for (int j = 0; j < result->size[1]; j++)
+        {
+            result->rows[i][j] = m1->rows[i][j] + m2->rows[i][j];
+        }
+    }
+
+    return 1;
+}
+\end{lstlisting}
+
+El código que realiza la traducción \texttt{SWI-Prolog $\longleftrightarrow$ C}:
+\begin{lstlisting}[style=C++]
+foreign_t
+pl_add_matrices(term_t m1, term_t m2, term_t result)
+{
+	struct Matrix_t* matrix1;
+	struct Matrix_t* matrix2;
+	struct Matrix_t* mresult = NULL;
+
+	matrix1 = list_to_matrix(m1);
+	if (!matrix1)
+		PL_fail;
+
+	matrix2 = list_to_matrix(m2);
+	if (!matrix2)
+	{
+		free_matrix(matrix1);
+		PL_fail;
+	}
+
+
+	mresult = alloc_matrix(matrix1->size);
+    if (!mresult)
+    {
+		free_matrix(matrix1); free_matrix(matrix2);
+        PL_fail;
+    }
+	
+	if (!add_matrices(matrix1, matrix2, mresult))
+	{
+		free_matrix(matrix1); free_matrix(matrix2); free_matrix(mresult);
+        PL_fail;
+	}
+
+	term_t mlist = PL_new_term_ref();
+	if (!matrix_to_list(mresult, mlist))
+	{
+		free_matrix(matrix1); free_matrix(matrix2); free_matrix(mresult);
+        PL_fail;
+	}
+	
+	if (!free_matrix(matrix1) | !free_matrix(matrix2) | !free_matrix(mresult))
+		PL_fail;
+
+	return PL_unify(result, mlist);
+}
+\end{lstlisting}
+
 \subsubsection{mult\_mat}
+El código que realiza la multiplicación de matrices es:
+\begin{lstlisting}[style=C++]
+int multiply_matrices(const struct Matrix_t* m1, const struct Matrix_t* m2, struct Matrix_t* result)
+{
+    if (!m1)
+        return 0;
+    if (!m1->size)
+        return 0;
+    if (!m1->rows)
+        return 0;
+
+    if (!m2)
+        return 0;
+    if (!m2->size)
+        return 0;
+    if (!m2->rows)
+        return 0;
+
+    if (!result)
+        return 0;
+    if (!result->size)
+        return 0;
+    if (!result->rows)
+        return 0;
+
+
+    if (m1->size[1] != m2->size[0])
+    {
+        return 0;
+    }
+
+    for (int i = 0; i < result->size[0]; i++)
+    {
+        for (int j = 0; j < result->size[1]; j++)
+        {
+            double res = 0;
+            for (int k = 0; k < m1->size[1]; k++)
+            {
+                res += m1->rows[i][k] * m2->rows[k][j];
+            }
+            result->rows[i][j] = res;
+        }
+    }
+    
+    return 1;
+}
+\end{lstlisting}
+
+El código que realiza la traducción \texttt{SWI-Prolog $\longleftrightarrow$ C}:
+\begin{lstlisting}[style=C++]
+foreign_t
+pl_multiply_matrices(term_t m1, term_t m2, term_t result)
+{
+	struct Matrix_t* matrix1;
+	struct Matrix_t* matrix2;
+	struct Matrix_t* mresult = NULL;
+
+	matrix1 = list_to_matrix(m1);
+	if (!matrix1)
+	{
+		PL_fail;
+	}
+
+	matrix2 = list_to_matrix(m2);
+	if (!matrix2)
+	{
+		free_matrix(matrix1);
+		PL_fail;
+	}
+
+	size_t nsize[2] = {0};
+	nsize[0] = matrix1->size[0];
+	nsize[1] = matrix2->size[1];
+	mresult = alloc_matrix(nsize);
+    if (!mresult)
+    {
+		free_matrix(matrix1); free_matrix(matrix2);
+        PL_fail;
+    }
+	
+	if (!multiply_matrices(matrix1, matrix2, mresult))
+	{
+		DEBUG_PRINT("Cannot multiply matrices\n");
+		free_matrix(matrix1); free_matrix(matrix2); free_matrix(mresult);
+	}
+
+	term_t mlist = PL_new_term_ref();
+	if (!matrix_to_list(mresult, mlist))
+	{
+		free_matrix(matrix1); free_matrix(matrix2); free_matrix(mresult);
+        PL_fail;
+	}
+	
+	if (!free_matrix(matrix1) | !free_matrix(matrix2) | !free_matrix(mresult))
+	{
+		PL_fail;
+	}
+
+	return PL_unify(result, mlist);
+}
+\end{lstlisting}
+
+\subsubsection{Matrix struct}
+A continuación se detalla la la estructura que se usa para representar una matriz de \texttt{nxn} elementos:
+
+\begin{lstlisting}[style=C++]
+struct Matrix_t
+{
+    size_t size[2]; // Matrix dimensions
+
+    double** rows; // Matrix rows
+};
+\end{lstlisting}
+
+
+\subsubsection{Funciones auxiliares}
+\subsubsection{\texttt{SWI-Prolog $\longrightarrow$ C}}
+Para convertir una lista de \texttt{SWI-Prolog}, que representa una fila, en un array de C contamos con la siguiente funcion:
+\begin{lstlisting}[style=C++]
+int list_to_row(const term_t list, size_t length, double* row)
+{
+    if (!row)
+        return 0;
+
+    term_t head = PL_new_term_ref();
+    term_t tail = PL_copy_term_ref(list);
+
+    for (int i = 0; i < length; i++)
+    {
+        if (!PL_get_list(tail, head, tail))
+            return 0;
+
+        int ival;
+        double dval;
+        switch (PL_term_type(head))
+        {
+            case PL_INTEGER:
+                if (!PL_get_integer(head, &ival))
+                    return 0;
+
+                *(row + i) = (double) ival;
+                break;
+            
+            case PL_FLOAT:
+                if (!PL_get_float(head, &dval))
+                    return 0;
+
+                *(row + i) = dval;
+                break;
+
+            default:
+                return 0;
+        }
+    }
+    
+    return 1;
+}
+\end{lstlisting}
+
+\subsubsection{\texttt{SWI-Prolog $\longleftarrow$ C}}
+Para convertir un array de C, que representa una fila, en una lista de \texttt{SWI-Prolog} contamos con la siguiente funcion:
+\begin{lstlisting}[style=C++]
+int row_to_list(double* row, size_t length, term_t list)
+{
+    if (!row)
+        return 0;
+
+    PL_put_nil(list);
+
+    term_t num = PL_new_term_ref();
+    
+    for (int i = length - 1; i >= 0; i--)
+    {
+        int res = PL_put_float(num, row[i]);
+        if (res != TRUE)
+            return 0;
+
+        res = PL_cons_list(list, num, list);
+        if (res != TRUE)
+            return 0;
+    }
+    return 1;
+}
+\end{lstlisting}
+
+También tenemos funciones que no convierten los tipos, si no que manejan la memoria que se asigna y se libera para mejorar la modularización y a prevenir errores relaciones con la gestión de la memoria:
+
+la siguiente función reserva memoria para una matriz de tamaño \texttt{size}:
+\begin{lstlisting}[style=C++]
+struct Matrix_t* alloc_matrix(const size_t size[2])
+{
+    if (!size)
+        return NULL;
+
+    if (size[0] < 1 || size[1] < 1)
+        return 0;
+
+    struct Matrix_t* mat = calloc(1, sizeof(struct Matrix_t));
+    if (!mat)
+        return NULL;
+
+    memcpy(mat->size, size, sizeof(size_t) * 2);
+
+
+    int rows = size[0];
+    int cols = size[1];
+
+    double** rptr = (double**) calloc(rows, sizeof(double*));
+
+    if (!rptr)
+    {
+        free(mat);
+        mat = NULL;
+        return NULL;
+    }
+    else
+    {
+        mat->rows = rptr;
+    }
+
+    for (int i = 0; i < rows; i++)
+    {
+        double* cptr = (double*) calloc(cols, sizeof(double));
+        if (!cptr)
+        {
+            for (int j = 0; j < i; j++)
+            {
+                free(*(mat->rows + i));
+                *(mat->rows + i) = NULL;
+            }
+            free(rptr);
+            rptr = NULL;
+            free(mat);
+            mat = NULL;
+            return NULL;
+        }
+        else
+        {
+            *(mat->rows + i) = cptr;
+        }
+    }
+
+    return mat;
+}
+\end{lstlisting}
+
+La siguiente función libera de la memoria un puntero a una estructura que almacena una matriz, es notable la comprobación para evitar liberar la misma dirección de memoria varias veces:
+:
+\begin{lstlisting}[style=C++]
+int free_matrix(struct Matrix_t* matrix)
+{
+    if (!matrix)
+        return 0;
+    if (!matrix->size)
+        return 0;
+
+    for (int i = 0; i < matrix->size[0]; i++)
+    {
+        if (*(matrix->rows + i))
+        {
+            free(*(matrix->rows + i));
+            *(matrix->rows + i) = NULL;
+        }
+    }
+
+    free(matrix->rows);
+    matrix->rows = NULL;
+    
+    free(matrix);
+    matrix = NULL;
+    
+    return 1;
+}
+\end{lstlisting}
+
 \subsection{C++}
 
 En la librería dinámica de C++, se ha logrado una gran modularización de las responsabilidades, de tal manera que todos los predicados constan de tres partes bien diferenciadas:
