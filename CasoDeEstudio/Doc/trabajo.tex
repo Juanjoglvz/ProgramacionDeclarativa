@@ -212,7 +212,7 @@ void dbgprintf(const char* source_file, int source_line, const char* format_stri
 
 De esta forma, para habilitar los mensajes de depuración solo tendríamos que añadir al comando de compilación la opción \texttt{-DDEBUG}
 
-La forma de imprimir un mensaje sería llamar a la función \texttt{DEBUG_PRINT} como si de otra función de C se tratase.
+La forma de imprimir un mensaje sería llamar a la función \texttt{DEBUG\_PRINT} como si de otra función de C se tratase.
 
 
 \section{Implementación de predicados externos}
@@ -1348,7 +1348,26 @@ int row_to_list(double *row, size_t length, term_t list)
 [2] \href{http://www.swi-prolog.org/pldoc/doc_for?object=section('packages/pl2cpp.html')}{Foreign Language interface to C++}.\\
 \end{flushleft}
 
+\begin{lstlisting}[style=C++]
+try {//In case the PlTail constructor fails
+	PlTail list(term);	
+   	PlTerm e1;
 
+    while (list.next(e1)) { //Iterate over the list
+       j = 0;
+       PlTerm e2;
+           PlTail list_row(e1);
+           while (list_row.next(e2)) {
+               content.push_back((double) e2);
+               j++;
+      		}   
+    }
+catch (...)
+{
+   std::cout << "Invalid matrix" << std::endl;
+   return nullptr;
+}
+\end{lstlisting}
 
 \end{document}
 

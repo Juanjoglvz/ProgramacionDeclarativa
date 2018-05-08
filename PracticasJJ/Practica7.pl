@@ -23,3 +23,11 @@ fichaCall([H|T], N) :- fichaRec(H, N), fichaCall(T, N).
 spaceList([]).
 spaceList([H|T]) :- H = 32, spaceList(T).
 
+sum(X, Y, Z):- Z is X + Y.
+mult(X, Y, Z):- Z is X * Y.
+
+reduce([H], Functor, Base, Result):- apply(Functor, [H, Base, Result]), !.
+reduce([H|T], Functor, Base, Result):- reduce(T, Functor, Base, R), apply(Functor, [H, R, Result]).
+
+sumList(L, R):- reduce(L, sum, 0, R).
+multList(L, R):- reduce(L, mult, 1, R).
